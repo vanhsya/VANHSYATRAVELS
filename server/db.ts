@@ -1,19 +1,57 @@
-import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-const dataDir = path.resolve(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// --- Resilient database bootstrap -----------------------------------------
+// Local / Node-server: real file-backed SQLite via node:sqlite.
+// Serverless (Vercel): read-only FS + optional node:sqlite -> /tmp + stub so
+// the app still boots and stateless AI routes keep working.
+type AnyDb = any;
+
+function createStubDb(): AnyDb {
+  const stmt = {
+    get: () => undefined,
+    all: () => [],
+    run: () => ({ changes: 0, lastInsertRowid: 0 }),
+  };
+  const noop = () => undefined;
+  return { exec: noop, prepare: () => stmt, close: noop };
 }
 
-const dbPath = path.join(dataDir, 'vanhsya.db');
-const db = new DatabaseSync(dbPath);
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const dataDir = isServerless ? '/tmp' : path.resolve(process.cwd(), 'data');
 
-db.exec('PRAGMA journal_mode = WAL;');
-db.exec('PRAGMA foreign_keys = ON;');
-db.exec('PRAGMA busy_timeout = 5000;');
+let db: AnyDb;
+try {
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+} catch {
+  /* read-only filesystem — fall back to stub */
+}
+
+let DatabaseSyncCtor: any = null;
+try {
+  ({ DatabaseSync: DatabaseSyncCtor } = await import('node:sqlite'));
+} catch {
+  DatabaseSyncCtor = null;
+}
+
+if (DatabaseSyncCtor) {
+  try {
+    db = new DatabaseSyncCtor(path.join(dataDir, 'vanhsya.db'));
+  } catch {
+    db = createStubDb();
+  }
+} else {
+  db = createStubDb();
+}
+
+try {
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec('PRAGMA foreign_keys = ON;');
+  db.exec('PRAGMA busy_timeout = 5000;');
+} catch {
+  /* stub ignores pragmas */
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS admin_config (

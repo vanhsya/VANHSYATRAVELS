@@ -3360,35 +3360,43 @@ BEHAVIOR:
 });
 
 // --- Frontend Mounting (Vite in dev, static files in prod) ---
+// On Vercel the static build is served by the platform and the Express app is
+// mounted as a serverless function, so we skip mounting + listen there.
+const isVercel = Boolean(process.env.VERCEL);
 
 const isProd =
   process.env.NODE_ENV === 'production' ||
   Boolean(process.env.K_SERVICE) ||
   process.env.npm_lifecycle_event === 'start';
 
-if (!isProd) {
-  const { createServer: createViteServer } = await import('vite');
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
+if (!isVercel) {
+  if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distDir = path.resolve(__dirname, 'dist');
+    app.use(express.static(distDir));
+    app.use((_req, res) => {
+      res.sendFile(path.resolve(distDir, 'index.html'));
+    });
+  }
+
+  const PORT = Number(process.env.PORT) || 3000;
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on http://0.0.0.0:${PORT} (mode: ${isProd ? 'production' : 'development'})`);
   });
-  app.use(vite.middlewares);
-} else {
-  const distDir = path.resolve(__dirname, 'dist');
-  app.use(express.static(distDir));
-  app.use((_req, res) => {
-    res.sendFile(path.resolve(distDir, 'index.html'));
+
+  process.on('SIGTERM', () => {
+    console.log('Received SIGTERM signal, closing server gracefully');
+    server.close(() => {
+      process.exit(0);
+    });
   });
 }
 
-const PORT = Number(process.env.PORT) || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server listening on http://0.0.0.0:${PORT} (mode: ${isProd ? 'production' : 'development'})`);
-});
-
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM signal, closing server gracefully');
-  server.close(() => {
-    process.exit(0);
-  });
-});
+export default app;
+export { app };

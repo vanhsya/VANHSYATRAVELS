@@ -12,5 +12,17 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, '.'),
     }
-  }
+  },
+  build: {
+    target: 'es2022',
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['@google/genai', 'ethers', 'qrcode'],
+        },
+      },
+    },
+  },
 });
