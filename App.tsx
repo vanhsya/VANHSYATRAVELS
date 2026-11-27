@@ -1,5 +1,6 @@
 import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AppProvider } from '@/contexts/AppContext';
 import Layout from '@/components/Layout';
 import HomePage from '@/pages/HomePage';
@@ -56,6 +57,7 @@ function App() {
           </Routes>
         </Layout>
       </HashRouter>
+      <SpeedInsights />
     </AppProvider>
   );
 }
