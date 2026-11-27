@@ -7,10 +7,10 @@
     "node": "22.x"
   },
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "tsx --env-file-if-exists=.env.local server.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "start": "tsx server.ts",
+    "start": "tsx --env-file-if-exists=.env.local server.ts",
     "preview": "vite preview"
   },
   "dependencies": {
