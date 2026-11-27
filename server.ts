@@ -3128,7 +3128,7 @@ Requirements:
 `;
 
     const response = await generateContentWithFallback({
-      model: 'gemini-4-hydrogen',
+      model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
