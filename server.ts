@@ -94,6 +94,7 @@ app.use('/api', apiReadLimiter);
 const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
 const ai = new GoogleGenAI({
   apiKey,
+  apiVersion: 'v1beta',
   httpOptions: {
     headers: {
       'User-Agent': 'aistudio-build',
@@ -2796,6 +2797,26 @@ app.post('/api/gemini/chat', async (req, res) => {
   }
 });
 
+function pcmToWav(pcm: Buffer, sampleRate: number, channels: number, bitsPerSample: number): Buffer {
+  const byteRate = (sampleRate * channels * bitsPerSample) / 8;
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
 app.post('/api/gemini/tts', async (req, res) => {
   try {
     const { text, voiceName = 'Kore' } = req.body;
@@ -2804,7 +2825,7 @@ app.post('/api/gemini/tts', async (req, res) => {
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
+      model: 'gemini-3.8-flash-tts',
       contents: [{ parts: [{ text }] }],
       config: {
         responseModalities: ['AUDIO'],
@@ -2816,12 +2837,17 @@ app.post('/api/gemini/tts', async (req, res) => {
       },
     });
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+    const inlinePart = response.candidates?.[0]?.content?.parts?.find(
+      (p: any) => p.inlineData?.data,
+    );
+    const base64Audio = inlinePart?.inlineData?.data || null;
     if (!base64Audio) {
       return res.status(500).json({ error: 'No audio returned' });
     }
 
-    res.json({ audio: base64Audio, mimeType: 'audio/wav' });
+    const pcm = Buffer.from(base64Audio, 'base64');
+    const wav = pcmToWav(pcm, 24000, 1, 16);
+    res.json({ audio: wav.toString('base64'), mimeType: 'audio/wav' });
   } catch (error: any) {
     console.error('Error in TTS:', error);
     res.status(500).json({ error: error.message || 'TTS generation failed' });
@@ -3135,6 +3161,12 @@ Requirements:
 
 const wss = new WebSocketServer({ server, path: '/live' });
 
+// Real, key-compatible Gemini Live models (override via env if needed).
+// Verified against the key's supported bidiGenerateContent model list.
+const LIVE_CONCIERGE_MODEL = process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-3.8-live';
+const LIVE_TRANSLATE_MODEL =
+  process.env.GEMINI_LIVE_TRANSLATE_MODEL?.trim() || 'gemini-3.5-live-translate-preview';
+
 const ALLOWED_LIVE_VOICES = new Set(['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr']);
 
 wss.on('connection', async (clientWs, req) => {
@@ -3152,17 +3184,17 @@ wss.on('connection', async (clientWs, req) => {
     const customStyle = cleanText(url.searchParams.get('customStyle') || '', 140);
 
     if (mode === 'translate') {
-      // Dedicated low-latency speech-to-speech interpreter pipeline (no systemInstruction/tools permitted)
+      // Dedicated low-latency speech-to-speech interpreter pipeline.
       session = await liveAi.live.connect({
-        model: 'gemini-3.5-live-translate-preview',
+        model: LIVE_TRANSLATE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
           outputAudioTranscription: {},
-          translationConfig: {
-            targetLanguageCode: targetCode || 'ar',
-            echoTargetLanguage: false,
-          } as any,
+          systemInstruction:
+            `You are a real-time speech-to-speech interpreter for Vanhsya Travels X. ` +
+            `Listen to the user and speak ONLY the natural translation into language code "${targetCode || 'ar'}". ` +
+            `Do not add commentary, greetings, or explanations—output only the translated speech.`,
         },
         callbacks: {
           onopen: () => {
@@ -3254,7 +3286,7 @@ BEHAVIOR:
 `;
 
       session = await liveAi.live.connect({
-        model: 'gemini-3.8-live',
+        model: LIVE_CONCIERGE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
           tools: [{ functionDeclarations: [navigateToTool as any] }],
