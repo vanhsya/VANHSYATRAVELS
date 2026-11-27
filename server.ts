@@ -3359,6 +3359,11 @@ BEHAVIOR:
   }
 });
 
+// Unknown API routes should return JSON 404 (not the SPA HTML fallback).
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
+
 // --- Frontend Mounting (Vite in dev, static files in prod) ---
 // On Vercel the static build is served by the platform and the Express app is
 // mounted as a serverless function, so we skip mounting + listen there.
